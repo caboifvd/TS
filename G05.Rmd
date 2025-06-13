@@ -1,0 +1,330 @@
+---
+title: "Time series - Midterm"
+author: "G05"
+date: "2025-04-14"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Xây dựng danh mục tối ưu (Excel)
+
+# Dự báo chuỗi lợi suất danh mục
+## Cách 1: Dựa vào 4 chuỗi log return 2023-2024
+
+```{r}
+library(readxl)
+Portifolio <- read_excel("D:/Schoool/Chuỗi thời gian/Nhóm/Portifolio - time series.xlsx", range = "A1:E499")
+head(Portifolio)
+```
+
+### Tạo chuỗi lợi suất danh mục
+```{r}
+# Sử dụng tỉ trọng minimum risk
+weights <- c(0.665449929,	0.22038907, 0,	0.114160987)
+newport <- Portifolio$rVCB*weights[1] + Portifolio$rCTG*weights[2] + Portifolio$rPVC*weights[3] +   Portifolio$rPVS*weights[4]
+head(newport)
+```
+
+
+### Đồ thị
+```{r}
+library(ggplot2)
+library(tidyverse)
+library(urca)
+library(forecast)
+
+Portifolio$Date <- as.Date(Portifolio$Date)
+newport <- as.data.frame(newport)
+plot <- data.frame(Portifolio$Date, newport)
+
+ggplot(data=plot, aes(x=Portifolio.Date, y=newport)) +
+  geom_line(color="red") +
+  labs(x="Ngày", y="Log - return (%)", title="Đồ thị chuỗi lợi suất danh mục") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+### KD ADF
+```{r}
+newport <- ts(newport, start=1, frequency=1)
+
+summary(ur.df(newport, type="trend"))
+```
+```{r}
+summary(ur.df(newport, type="drift"))
+```
+```{r}
+summary(ur.df(newport, type="none"))
+```
+
+### ACF, PACF
+```{r}
+acf(newport)
+pacf(newport)
+```
+```{r}
+# ARIMA(1,0,1)
+new_reg101 <- Arima(newport, order = c(1,0,1))
+summary(new_reg101)
+```
+```{r}
+# ARIMA(1,0,0)
+new_reg100 <- Arima(newport, order = c(1,0,0))
+summary(new_reg100)
+```
+
+```{r}
+autoplot(new_reg101)
+checkresiduals(new_reg101)
+```
+```{r}
+autoplot(new_reg100)
+checkresiduals(new_reg100)
+```
+### Dự báo = ARIMA(0,0,1)
+```{r}
+port.arima100 <- forecast(new_reg100,h=10)
+port.arima100
+```
+### Chuyển từ chuỗi log - return qua chuỗi giá
+
+```{r}
+#log(sau / trc) = log - return
+forecast_port <- c(72889.6338, rep(0,10))
+for (i in 2:11){
+  forecast_port[i] = exp(port.arima100$mean[i-1]/100)*forecast_port[i-1]
+}
+forecast_port <- forecast_port[2:11]
+forecast_port
+```
+```{r}
+rmse(c(72845.44,
+72914.94,
+73052.32,
+73073.58,
+73106.23,
+73134.47,
+73176.82,
+73217.09,
+73257.39,
+73296.07),c(73036.05, 73074.00 ,73121.68, 73168.53, 73215.49, 73262.47, 73309.48, 73356.52, 73403.59, 73450.69))
+
+mape(c(72845.44,
+72914.94,
+73052.32,
+73073.58,
+73106.23,
+73134.47,
+73176.82,
+73217.09,
+73257.39,
+73296.07),c(73036.05, 73074.00 ,73121.68, 73168.53, 73215.49, 73262.47, 73309.48, 73356.52, 73403.59, 73450.69))
+```
+```{r}
+rmse(port.arima100$mean, c(6.49308E-01,
+-3.87128E-01,
+4.44561E-01,
+-7.36781E-01,
+2.77072E-01,
+-5.60020E-01,
+-3.75319E-01,
+6.92338E-01,
+-7.64288E-01,
+-4.80826E-01))
+```
+
+## Cách 2: Dựa vào 4 chuỗi dự báo riêng
+
+```{r}
+dbportfolio <- read_excel("D:/Time series/dự báo portfolio.xlsx", 
+    sheet = "Sheet1")
+```
+
+```{r}
+lVCB<-dbportfolio$VCB
+lCTG<-dbportfolio$CTG
+lPVC<-dbportfolio$PVC
+lPVS<-dbportfolio$PVS
+```
+
+```{r}
+returns <- cbind(lVCB, lCTG, lPVC, lPVS)
+returns <- as.data.frame(returns)
+```
+
+```{r}
+#weighted đã tính được: 0.665449972	0.220388983	1.21E-09	0.114161046
+weight <- c(0.665449972,	0.220388983,	1.21E-09,	0.114161046)
+```
+
+```{r}
+#Dự báo portfolio từ chuỗi cá nhân
+returns <- returns %>%
+  mutate(Portfolio = lVCB * weight[1] +
+                      lCTG * weight[2] +
+                      lPVC * weight[3] +
+                      lPVS * weight[4])
+returns
+```
+
+
+# Kiểm tra đồng tích hợp của 4 chuỗi giá
+```{r}
+library(readxl)
+Stock_price <- read_excel("D:/Schoool/Chuỗi thời gian/Nhóm/Stock price.xlsx", 
+    sheet = "Stock_price")
+View(Stock_price)
+```
+
+```{r}
+library(urca)
+
+johansen_test <- ca.jo(Stock_price[,3:6], type = "trace")
+summary(johansen_test)
+```
+```{r}
+johansen_test <- ca.jo(Stock_price[,3:6], type = "eigen")
+summary(johansen_test)
+```
+
+
+# Phân tích VAR
+## Nhập dữ liệu log-return giai đoạn 2023-2024 
+```{r}
+group_logreturn <- read_excel("D:/Tài liệu các môn/Time series/Time Series - TKT64 - 2024-25.xlsx", 
+    sheet = "datanhom")
+group_logreturn<-group_logreturn[,-1]
+head(group_logreturn)
+```
+
+## Xác định bậc của trễ
+```{r}
+VARselect(group_logreturn)
+```
+
+## Ước lượng mô hình
+```{r}
+var1 <- VAR(group_logreturn, p =1, type = "none")			# package “vars”
+summary(var1)
+```
+
+## Kiểm định về tự tương quan của phần dư
+```{r}
+serial.test(var1)
+```
+
+## Dự báo VAR(1) (Du bao log_return 10 phien dau 2025)
+```{r}
+forecast1 <- predict(var1,n.ahead=10) 
+logf_VCB<-forecast1$fcst$rVCB[,1]
+logf_CTG<-forecast1$fcst$rCTG[,1]
+logf_PVC<-forecast1$fcst$rPVC[,1]
+logf_PVS<-forecast1$fcst$rPVS[,1]
+logreturnf<-data.frame(logf_VCB,logf_CTG,logf_PVC,logf_PVS)
+logreturnf
+```
+
+## Plot
+```{r}
+par(mfrow = c(1, 1))     
+par(mar = c(4, 4, 2, 2)) 
+plot(forecast1)
+```
+
+## Hàm phản ứng (impulse response function)
+```{r}
+irf(var1)
+```
+
+### Plot 
+```{r}
+plot(irf(var1))
+```
+
+## Phân rã phương sai (forecast error variance decomposition – fevd)
+```{r}
+fevd(var1)
+```
+
+### Plot 
+```{r}
+par(mfrow = c(1, 1))     
+par(mar = c(4, 4, 2, 2))
+plot(fevd(var1))
+```
+
+# Dự báo giá cổ phiếu 10 phiên đầu 2025
+
+## Nhập dữ liệu giá cổ phiếu giai đoạn 2023-2024 
+```{r}
+group_price <- read_excel("D:/Tài liệu các môn/Time series/Time Series - TKT64 - 2024-25.xlsx", 
+    sheet = "Sheet2")
+group_price<-group_price[,-1]
+head(group_price)
+```
+
+## Dự báo 4 chuỗi giá 10 phiên đầu 2025
+```{r}
+# Số mã cổ phiếu (cột trong logf105)
+num_stocks <- ncol(logreturnf)
+
+# Tạo một ma trận để lưu giá cho từng cổ phiếu
+price_f <- matrix(0, nrow = nrow(logreturnf), ncol = num_stocks)
+
+# Vòng lặp qua từng cổ phiếu
+for (j in 1:num_stocks) {
+  
+  # Giá phiên đầu tiên cho từng mã cổ phiếu (cột thứ j)
+  price_f1 <- exp(logreturnf[1, j] / 100) * group_price[[499,j]]  # Giá phiên 1 cho cổ phiếu j
+  
+  # Tính giá cho từng phiên tiếp theo
+  price_f[1, j] <- price_f1  # Giá phiên 1
+  for (i in 2:nrow(logreturnf)) {
+    price_f[i, j] <- exp(logreturnf[i, j] / 100) * price_f[i - 1, j]
+  }
+}
+colnames(price_f) <- colnames(group_price)
+# Xem giá của các cổ phiếu sau khi tính toán
+price_f
+```
+
+```{r}
+#Chuyển đổi matrix thành data frame và gán tên cột
+price_f_df <- as.data.frame(price_f)
+colnames(price_f_df) <- c("VCB", "CTG", "PVC", "PVS")
+View(price_f_df)
+```
+
+```{r}
+#Giá thực 10 phiên đầu 2025
+price_real_2025 <- read_excel("D:/Tài liệu các môn/Time series/Mid_term/GIÁ DỰ BÁO.xlsx", sheet = "Giá thực")
+price_real_2025
+```
+```{r}
+#Tính RMSE cho từng cổ phiếu 
+rmse_values <- sapply(1:ncol(price_f_df), function(i) {
+  rmse(price_real_2025[[i]], price_f_df[[i]])
+})
+names(rmse_values) <- colnames(price_f_df)
+print(rmse_values)
+```
+
+```{r}
+#Tính MAPE cho từng cổ phiếu 
+mape_values <- sapply(1:ncol(price_f_df), function(i) {
+  mape(price_real_2025[[i]], price_f_df[[i]])
+})
+names(mape_values) <- colnames(price_f_df)
+print(mape_values)
+```
+
+
+
+
+
+
+
+

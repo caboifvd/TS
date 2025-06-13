@@ -1,0 +1,727 @@
+---
+title: '11226303'
+author: "Nguyen Thi Tra"
+date: "2025-04-08"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+```{r}
+library(readxl)
+library(forecast)
+library(zoo)
+library(Metrics)
+library(tseries)
+library(tseries)
+library(urca)
+library(ggplot2)
+library(dplyr)
+```
+# I. Chuỗi doanh thu 
+```{r}
+DT <- read_excel("D:/Time series/financial_series.xlsx")
+attach(DT)
+rev_pvs<- ts(DT$Rev, start=c(2010,1), frequency = 4) #chuyển sang dạng chuỗi thời gian
+time <- seq_along(rev_pvs)
+```
+## 1. Thống kê mô tả
+```{r}
+summary(rev_pvs)
+plot.ts(rev_pvs)
+rev_plot <- data.frame(Time = time(rev_pvs), Revenue = rev_pvs)
+rev_plot %>% ggplot(aes(x=Time,y=Revenue)) +
+  geom_line(col="blue", size=0.9) +
+  theme_minimal() +
+  labs(title="Doanh thu của PVS giai đoạn 2010 - 2024")
+```
+## 2. Các mô hình dự báo đối với tập training set (2010 - 2023)
+```{r}
+#Chia dữ liệu
+train_ts <- window(rev_pvs, start=c(2010,1), end=c(2023,4))
+test_ts <- window(rev_pvs, start=c(2024,1), end=c(2024,4))
+t_train<-seq_along(train_ts)
+t_test <- seq_along(test_ts) + length(train_ts) # Tạo biến thời gian cho tập test
+```
+```{r}
+test_ts
+```
+
+### MÔ HÌNH 1: linear - linear: 
+$DT_t = \beta_0 + \beta_1 * t + u_t $
+```{r}
+reg1 <- lm(train_ts ~ t_train)
+summary(reg1)
+```
+```{r}
+rmse(train_ts, fitted(reg1))
+mape(train_ts, fitted(reg1))
+```
+```{r}
+# Dự báo cho tập test
+forecast_reg1 <- predict(reg1, newdata = data.frame(t_train = t_test))
+forecast_reg1
+# Tính RMSE và MAPE trên tập test
+rmse(test_ts, forecast_reg1)
+mape(test_ts, forecast_reg1)
+```
+```{r}
+# Dự báo cho toàn mẫu 
+full_reg1 <- predict(reg1, newdata = data.frame(t_train = time))
+full_reg1
+# Tính RMSE và MAPE toàn mẫu
+rmse(rev_pvs, full_reg1)
+mape(rev_pvs, full_reg1)
+```
+
+### MÔ HÌNH 2: linear - log: 
+$DT_t = \beta + \beta_1*ln(t) + u_t$
+```{r}
+reg2 <- lm(train_ts ~ log(t_train))
+summary(reg2)
+```
+
+```{r}
+rmse(train_ts, fitted(reg2))
+mape(train_ts, fitted(reg2))
+```
+```{r}
+# Dự báo cho tập test
+forecast_reg2 <- predict(reg2, newdata = data.frame(t_train = t_test))
+forecast_reg2
+
+# Tính RMSE và MAPE trên tập test
+rmse(test_ts, forecast_reg2)
+mape(test_ts, forecast_reg2)
+```
+
+
+### MÔ HÌNH 3: log - linear: 
+$ln(DT_t) = \beta_0 + \beta_1 * t + u_t $
+```{r}
+reg3 <- lm(log(train_ts) ~ t_train)
+summary(reg3)
+```
+
+```{r}
+rmse(train_ts, exp(fitted(reg3)))
+mape(train_ts, exp(fitted(reg3)))
+```
+```{r}
+# Dự báo cho tập test
+forecast_reg3 <- predict(reg3, newdata = data.frame(t_train = t_test))
+exp(forecast_reg3)
+
+# Tính RMSE và MAPE trên tập test
+rmse(test_ts, exp(forecast_reg3))
+mape(test_ts, exp(forecast_reg3))
+```
+
+
+### MÔ HÌNH 4: log - log 
+$ln(DT_t) = \beta_0 + \beta_1 * ln(t) +u_t$
+```{r}
+reg4 <- lm(log(train_ts) ~ log(t_train))
+summary(reg4)
+```
+
+```{r}
+rmse(train_ts, exp(fitted(reg4)))
+mape(train_ts, exp(fitted(reg4)))
+```
+```{r}
+# Dự báo cho tập test
+forecast_reg4 <- predict(reg4, newdata = data.frame(t_train = t_test))
+exp(forecast_reg4)
+# Tính RMSE và MAPE trên tập test
+rmse(test_ts, exp(forecast_reg4))
+mape(test_ts, exp(forecast_reg4))
+```
+
+
+### MÔ HÌNH 5: DẠNG BẬC 2 CỦA TREND 
+$DT_T = \beta_0 + \beta_1*t + \beta_2*t^2 + u_t$
+```{r}
+reg5 <- lm(train_ts~ t_train+ I(t_train^2))
+summary(reg5)
+```
+
+```{r}
+rmse(train_ts, fitted(reg5))
+mape(train_ts, fitted(reg5))
+```
+```{r}
+# Dự báo cho tập test
+forecast_reg5 <- predict(reg5, newdata = data.frame(t_train = t_test))
+forecast_reg5
+# Tính RMSE và MAPE trên tập test
+rmse(test_ts, forecast_reg5)
+mape(test_ts, forecast_reg5)
+```
+
+```{r}
+# Tạo biến giả mùa vụ theo quý
+n <- length(train_ts)  # Lấy số lượng quan sát của profit
+s1 <- rep(c(1, 0, 0, 0), length.out = n)  # Q1
+s2 <- rep(c(0, 1, 0, 0), length.out = n)  # Q2
+s3 <- rep(c(0, 0, 1, 0), length.out = n)  # Q3
+s4 <- rep(c(0, 0, 0, 1), length.out = n)  # Q4
+# Tạo biến giả mùa vụ cho tập kiểm tra
+n_test <- length(test_ts)
+s1_test <- rep(c(1, 0, 0, 0), length.out = n_test)
+s2_test <- rep(c(0, 1, 0, 0), length.out = n_test)
+s3_test <- rep(c(0, 0, 1, 0), length.out = n_test)
+s4_test <- rep(c(0, 0, 0, 1), length.out = n_test)
+```
+
+
+### MÔ HÌNH 6: Hồi quy với biến giả mùa vụ 
+$DT_t = \beta_0 + \beta_1*s_2 + \beta_2*s_3 + \beta_3*s_4 + u_t$ 
+```{r}
+reg6 <- lm(train_ts ~ s2 + s3 + s4)
+summary(reg6)
+```
+
+```{r}
+rmse(train_ts, fitted(reg6))
+mape(train_ts, fitted(reg6))
+```
+```{r}
+# Dự báo
+forecast_reg6 <- predict(reg6, newdata = data.frame(s2 = s2_test, s3 = s3_test, s4 = s4_test))
+forecast_reg6
+# RMSE & MAPE
+rmse(test_ts, forecast_reg6)
+mape(test_ts, forecast_reg6)
+```
+
+
+### MÔ HÌNH 7: Xu thế tuyến tính+ Mùa vụ dạng cộng
+$DT_t = \beta_0 + \beta_1*t +\beta_2*s_2 + \beta_3*s_3 + \beta_4*s_4 + u_t$
+```{r}
+reg7 <- lm(train_ts ~ t_train + s2 + s3 + s4)
+summary(reg7)
+```
+
+```{r}
+rmse(train_ts, fitted(reg7))
+mape(train_ts, fitted(reg7))
+```
+```{r}
+# Dự báo
+forecast_reg7 <- predict(reg7, newdata = data.frame(
+  t_train = t_test,
+  s2 = s2_test,
+  s3 = s3_test,
+  s4 = s4_test
+))
+forecast_reg7
+# RMSE & MAPE
+rmse(test_ts, forecast_reg7)
+mape(test_ts, forecast_reg7)
+```
+```{r}
+plot.ts(train_ts)
+lines(ts(fitted(reg7), start = start(train_ts), frequency = frequency(train_ts)), col = "red")
+```
+
+
+### MÔ HÌNH 8: Xu thế tuyến tính + Mùa vụ dạng nhân
+$DT_t = \beta_0 + \beta_1*t +\beta_2*t*s_2 + \beta_3*t*s_3 + \beta_4*t*s_4 + u_t$
+
+```{r}
+reg8 <- lm(train_ts ~ t_train + I(t_train*s2) + I(t_train*s3)+ I(t_train*s4))
+summary(reg8)
+```
+
+```{r}
+rmse(train_ts, fitted(reg8))
+mape(train_ts, fitted(reg8))
+```
+```{r}
+# Dự báo
+forecast_reg8 <- predict(reg8, newdata = data.frame(
+  t_train = t_test,
+  s2 = s2_test,
+  s3 = s3_test,
+  s4 = s4_test
+))
+forecast_reg8
+# RMSE & MAPE
+rmse(test_ts, forecast_reg8)
+mape(test_ts, forecast_reg8)
+```
+
+
+### MÔ HÌNH 9: Xu thế không tuyến tính+ Mùa vụ dạng cộng
+$ln(DT_t) = \beta_0 + \beta_1*t +\beta_2*s_2 + \beta_3*s_3 + \beta_4*s_4 + u_t$
+```{r}
+reg9 <- lm(log(train_ts) ~ t_train + s2 + s3 + s4)
+summary(reg9)
+```
+
+```{r}
+rmse(train_ts, exp(fitted(reg9)))
+mape(train_ts, exp(fitted(reg9)))
+```
+```{r}
+# Dự báo
+forecast_reg9 <- predict(reg9, newdata = data.frame(
+  t_train = t_test,
+  s2 = s2_test,
+  s3 = s3_test,
+  s4 = s4_test
+))
+exp(forecast_reg9)
+# RMSE & MAPE
+rmse(test_ts, exp(forecast_reg9))
+mape(test_ts, exp(forecast_reg9))
+```
+
+```{r}
+plot.ts(train_ts)
+lines(ts(exp(fitted(reg9)), start = start(train_ts), frequency = frequency(train_ts)), col = "red")
+```
+
+### MÔ HÌNH 10: Xu thế không tuyến tính + Mùa vụ, dạng nhân
+$ln(DT_t) = \beta_0 + \beta_1*t +\beta_2*t*s_2 + \beta_3*t*s_3 + \beta_4*t*s_4 + u_t$
+```{r}
+reg10 <- lm(log(train_ts) ~ t_train + I(t_train*s2) + I(t_train*s3)+ I(t_train*s4))
+summary(reg10)
+```
+
+```{r}
+rmse(train_ts, exp(fitted(reg10)))
+mape(train_ts, exp(fitted(reg10)))
+```
+
+```{r}
+# Dự báo
+forecast_reg10 <- predict(reg10, newdata = data.frame(
+  t_train = t_test,
+  s2 = s2_test,
+  s3 = s3_test,
+  s4 = s4_test
+))
+exp(forecast_reg10)
+# RMSE & MAPE
+rmse(test_ts, exp(forecast_reg10))
+mape(test_ts, exp(forecast_reg10))
+```
+
+
+### Phân tích thành phần dạng cộng
+```{r}
+decoma <- decompose(rev_pvs,type="additive")
+plot(decoma)
+```
+
+### Phân tích thành phần dạng nhân
+```{r}
+decomm <- decompose(rev_pvs,type="m")
+plot(decomm)
+```
+
+
+
+### MÔ HÌNH 11: Holt - Winter có mùa vụ dạng cộng
+```{r}
+hwa <- HoltWinters(train_ts, seasonal = "a")  
+hwa
+```
+
+```{r}
+rmse(train_ts, fitted(hwa)[,1])
+mape(train_ts, fitted(hwa)[,1])
+```
+```{r}
+plot.ts(train_ts)
+lines(fitted(hwa)[,1],col="red")
+```
+
+
+```{r}
+# Dự báo cho tập test (4 quý tiếp theo)
+forecast_hwa <- forecast(hwa, h = length(test_ts))
+forecast_hwa
+# Đánh giá độ chính xác trên test
+rmse(test_ts, forecast_hwa$mean)
+mape(test_ts, forecast_hwa$mean)
+```
+### MÔ HÌNH 12: Holt - Winter có mùa vụ dạng nhân
+
+```{r}
+hwm <- HoltWinters(train_ts, seasonal = "m") 
+hwm
+```
+
+```{r}
+rmse(train_ts, fitted(hwm)[,1])
+mape(train_ts, fitted(hwm)[,1])
+```
+
+```{r}
+plot.ts(train_ts)
+lines(fitted(hwm)[,1],col="red")
+```
+
+```{r}
+# Dự báo cho tập test (4 quý tiếp theo)
+forecast_hwm <- forecast(hwm, h = length(test_ts))
+forecast_hwm
+# Đánh giá độ chính xác trên test
+rmse(test_ts, forecast_hwm$mean)
+mape(test_ts, forecast_hwm$mean)
+```
+### Mô hình Holt Winter Mul cho giá trị RMSE của tập test là nhỏ nhất. Sử dụng kết quả hwm để dự báo cho 2025
+```{r}
+# Dự báo cho năm 2025 (4 quý tiếp theo sau test)
+forecast_2025 <- forecast(hwa, h = 8)  # 4 quý 2024 (test) + 4 quý 2025
+
+# Lấy riêng 4 quý của 2025
+forecast_2025_values <- window(forecast_2025$mean, start = c(2025, 1), end = c(2025, 4))
+
+# In kết quả dự báo
+forecast_2025_values
+```
+```{r}
+plot(forecast_2025, main = "Dự báo doanh thu đến hết năm 2025", ylab = "DT", xlab = "Thời gian")
+abline(v = 2024, col = "blue", lty = 2)  # Đường phân chia test và dự báo
+```
+# II. Chuỗi giá cổ phiếu và log return
+```{r}
+stock_price <- read_excel("D:/Time series/stock_price.xlsx")
+price<-stock_price$Price
+tail(stock_price)
+logreturn<-na.omit(stock_price$`Log-return`)
+
+```
+```{r}
+real <- c(33800, 34000, 33400, 32100, 32100,32200, 32000, 32600, 32100, 31700)
+reall <-c(33900,33800, 34000, 33400, 32100, 32100,32200, 32000, 32600, 32100, 31700)
+logreal <- log(reall[-1] / reall[-length(reall)]) * 100
+logreal
+```
+
+## 1. Thống kê mô tả
+```{r}
+str(stock_price)
+summary(price)
+summary(logreturn)
+```
+```{r}
+plot( price,type="l",col="blue", xlab = "Date", ylab = "Price",
+     main = "Giá cổ phiếu PVS từ ngày 3/1/2023 tới 31/12/2024",)
+
+plot(logreturn,type="l",col="blue", xlab = "Date", ylab = "Log-return",
+      main = "Lợi suất của cổ phiếu PVS từ ngày 3/1/2023 tới 31/12/2024",)
+```
+
+## 2. Kiểm định tính dừng
+### KD ADF cho chuỗi có xu thế
+```{r}
+# Price
+summary(ur.df(price, type="trend")) #chưa bác bỏ: có no đơn vị
+```
+
+```{r}
+# Log return
+summary(ur.df(logreturn, type="trend")) #bác bỏ H0: ko có no đơn vị
+```
+### KD ADF cho chuỗi chỉ có hệ số chặn
+
+```{r}
+# Price
+summary(ur.df(price,type = "drift")) #có no đơn vị
+```
+
+```{r}
+# Log return
+summary(ur.df(logreturn, type="drift")) #không có no đơn vị,hệ số chặn k có ý nghĩa thống kê
+```
+
+### KD ADF none
+
+```{r}
+# Price
+summary(ur.df(price,type = "none")) #có nghiệm đơn vị
+```
+```{r}
+# Log return
+summary(ur.df(logreturn, type="none")) #chuỗi dừng
+```
+
+```{r}
+#Chuỗi sai phân
+summary(ur.df(diff(price),type = "trend"))
+summary(ur.df(diff(price),type = "drift"))
+summary(ur.df(diff(price),type = "none")) #dừng không có hệ số chặn
+```
+### VẼ ACF, PACF ĐỂ XÁC ĐỊNH BẬC ARIMA(p,d,q)
+```{r}
+#Chuỗi logreturn
+acf(logreturn)
+pacf(logreturn)
+```
+```{r}
+#Chuỗi giá
+acf(diff(price))
+pacf(diff(price))
+```
+### ƯL MÔ HÌNH ARIMA
+```{r}
+fit <- auto.arima(price,allowdrift=FALSE)
+summary(fit)
+```
+
+```{r}
+#acf của diff(price) bậc 1,5,6
+#pacf của diff(price) bậc 1,5,6
+#acf của logreturn bậc 1,5,6,16
+#pacf của logreturn bậc 1,5,16
+#Chuỗi giá
+#Arima(6,1,1)
+reg.arima611<-Arima(price,order=c(6,1,1),include.constant = FALSE)
+summary(reg.arima611)
+```
+```{r}
+#Arima(6,1,0)
+reg.arima610<-Arima(price,order=c(6,1,0),include.constant = FALSE)
+summary(reg.arima610)
+```
+
+```{r}
+#Arima(5,1,1)
+reg.arima511<-Arima(price,order=c(5,1,1),include.constant = FALSE)
+summary(reg.arima511)
+```
+```{r}
+#Arima(5,1,6)
+reg.arima516<-Arima(price,order=c(5,1,6),include.constant = FALSE)
+summary(reg.arima516)
+```
+```{r}
+#Arima(5,1,5)
+reg.arima515<-Arima(price,order=c(5,1,5),include.constant = FALSE)
+summary(reg.arima515)
+```
+```{r}
+#Arima(1,1,5)
+reg.arima115<-Arima(price,order=c(1,1,5),include.constant = FALSE)
+summary(reg.arima115)
+```
+```{r}
+#Arima(1,1,6)
+reg.arima116<-Arima(price,order=c(1,1,6),include.constant = FALSE)
+summary(reg.arima116)
+```
+
+```{r}
+#Arima(1,1,1)
+reg.arima111<-Arima(price,order=c(1,1,1),include.constant = FALSE)
+summary(reg.arima111)
+```
+```{r}
+#Xem tính dừng qua nghiệm nghịch đảo
+autoplot(reg.arima115)
+autoplot(reg.arima515)
+autoplot(reg.arima610)
+```
+```{r}
+#kiểm định tính nhiễu trắng của phần dư
+checkresiduals(reg.arima115)
+checkresiduals(reg.arima515)
+checkresiduals(reg.arima610)
+```
+###DỰ BÁO
+```{r}
+farima610<-forecast(reg.arima610,h=10)
+farima115<-forecast(reg.arima115,h=10)
+farima515<-forecast(reg.arima515,h=10)
+farima610
+farima115
+farima515
+```
+```{r}
+rmse(real,farima515$mean)
+rmse(real,farima610$mean)
+rmse(real,farima115$mean)
+```
+
+```{r}
+#chuỗi logreturn
+#Arima(5,0,1)
+#xl<-auto.arima(logreturn,allowdrift = FALSE)
+#summary(xl)
+log.arima501<-Arima(logreturn,order=c(5,0,1),include.constant = FALSE)
+summary(log.arima501)
+```
+```{r}
+#Arima(1,0,1)
+log.arima101<-Arima(logreturn,order=c(1,0,1),include.constant = FALSE)
+summary(log.arima101)
+```
+```{r}
+#Arima(1,0,5)
+log.arima105<-Arima(logreturn,order=c(1,0,5),include.constant = FALSE)
+summary(log.arima105)
+```
+```{r}
+#Arima(1,0,6)
+log.arima106<-Arima(logreturn,order=c(1,0,6),include.constant = FALSE)
+summary(log.arima106)
+```
+
+```{r}
+#Arima(5,0,5)
+log.arima505<-Arima(logreturn,order=c(5,0,5),include.constant = FALSE)
+summary(log.arima505)
+```
+```{r}
+#Arima(5,0,6)
+log.arima506<-Arima(logreturn,order=c(5,0,6),include.constant = FALSE)
+summary(log.arima506)
+```
+```{r}
+log.arima161<-Arima(logreturn,order=c(16,0,1),include.constant = FALSE)
+log.arima161
+```
+```{r}
+log.arima160<-Arima(logreturn,order=c(16,0,0),include.constant = FALSE)
+log.arima160
+```
+
+```{r}
+#Xem tính dừng
+autoplot(log.arima505) #loại
+autoplot(log.arima501)
+autoplot(log.arima105)
+```
+```{r}
+xll<-auto.arima(logreturn, stepwise = FALSE, approximation = FALSE)
+xlll<-auto.arima(logreturn, seasonal = TRUE, stepwise = FALSE, approximation = FALSE)
+xlll
+Arima(logreturn, order = c(5,0,0), seasonal = list(order = c(1,1,1), period = 12))
+```
+
+```{r}
+Box.test(residuals(log.arima501), lag=16, type="Ljung")
+Box.test(residuals(log.arima105), lag=16, type="Ljung")
+```
+
+```{r}
+#kiểm định tính nhiễu trắng của phần dư
+checkresiduals(log.arima501) 
+checkresiduals(log.arima105) 
+#checkresiduals(Arima(logreturn, order = c(5,0,0), seasonal = list(order = c(1,1,1), period = 12)))
+```
+
+```{r}
+larima501<-forecast(log.arima501,h=10)
+larima105<-forecast(log.arima105,h=10)
+larima161<-forecast(log.arima161,h=10)
+larima160<-forecast(log.arima160,h=10)
+```
+
+```{r}
+predlog<-larima501$mean
+predlog1<-larima105$mean
+predlog
+predlog1
+```
+
+```{r}
+rmse(logreal,larima105$mean)
+rmse(logreal,larima501$mean)
+rmse(logreal,larima161$mean)
+rmse(logreal,larima160$mean)
+
+```
+
+```{r}
+lastrealprice <- tail(price, 1) # lấy giá cuối cùng trong chuỗi gốc
+lastrealprice1<-tail(price, 1)
+```
+
+```{r}
+# Suy ngược ra chuỗi giá từ log return dự báo
+pred <- numeric(length(predlog))  # tạo vector rỗng để lưu kết quả
+pred1 <- numeric(length(predlog1))  # tạo vector rỗng để lưu kết quả
+
+for (i in 1:length(predlog)) {
+  return_percentage <- predlog[i]
+  pred[i] <- lastrealprice * exp(return_percentage / 100)  # giá dự báo
+  lastrealprice <- pred[i]  # cập nhật giá cuối cùng để dùng cho bước tiếp theo
+}
+pred
+for (i in 1:length(predlog1)) {
+  return_percentage1 <- predlog1[i]
+  pred1[i] <- lastrealprice1 * exp(return_percentage1 / 100)  # giá dự báo
+  lastrealprice1 <- pred1[i]  # cập nhật giá cuối cùng để dùng cho bước tiếp theo
+}
+pred1
+```
+```{r}
+rmse(real,pred)
+rmse(real,pred1)
+```
+### ARCH/GARCH
+```{r}
+# lấy phần dư
+lr1 <- logreturn - fitted(larima105)
+# bình phương phần dư
+resid.arima105 <- lr1^2
+ts.plot(resid.arima105)
+pacf(resid.arima105)
+```
+```{r}
+#Hồi quy phụ
+library(dynlm)
+summary(dynlm(lr1~L(resid.arima105)))
+summary(dynlm(lr1~L(resid.arima105)+L(resid.arima105,2))) #ko có bậc arch tương ứng
+summary(dynlm(lr1~L(resid.arima105)+L(resid.arima105,2)+L(resid.arima105,2)+L(resid.arima105,3)+L(resid.arima105,4)+L(resid.arima105,5)+L(resid.arima105,6))) #ko có bậc arch tương ứng
+
+```
+```{r}
+library(FinTS)
+ArchTest(logreturn,lags=9,demean=TRUE)
+```
+
+```{r}
+library(fGarch)
+g1 <- garchFit(~arma(1,5)+garch(1,1), data=logreturn, trace=FALSE)
+summary(g1)
+```
+```{r}
+plot(g1)
+```
+
+
+
+```{r}
+result<-predict(g1, n.ahead = 10, plot = TRUE, crit_val = 2)
+round(result$meanForecast, 4)
+```
+```{r}
+library(rugarch)
+ig1 <- ugarchspec(variance.model=list(model="iGARCH",garchOrder=c(1,1)),
+                    mean.model=list(armaOrder=c(1,5)))
+ig1fit <- ugarchfit(model,logreturn)
+ig1fit
+```
+
+```{r}
+plot(ig1fit)
+```
+
+```{r}
+#Dự báo
+ugarchforecast(ig1fit, n.ahead = 10)
+```
+
